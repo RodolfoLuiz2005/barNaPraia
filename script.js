@@ -7,6 +7,7 @@ const STORAGE_KEYS = {
   serviceRequests: "marePinaServiceRequests",
   requestCounter: "marePinaRequestCounter",
   customerSession: "marePinaCustomerSession",
+  tableSessions: "marePinaTableSessions",
   sessionCounter: "marePinaSessionCounter"
 };
 
@@ -58,6 +59,7 @@ const moneyFormatter = new Intl.NumberFormat("pt-BR", { style: "currency", curre
 const $ = (selector, context = document) => context.querySelector(selector);
 const $$ = (selector, context = document) => Array.from(context.querySelectorAll(selector));
 
+// Data boundary: replace these localStorage calls with Firebase, Supabase or an API client in production.
 const DataService = {
   getProducts() {
     const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.products), null);
@@ -79,12 +81,27 @@ const DataService = {
     this.saveRequests(requests);
     window.dispatchEvent(new CustomEvent("service-request-created", { detail: request }));
   },
+  getCustomerSessions() {
+    const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.tableSessions), []);
+    return Array.isArray(stored) ? stored : [];
+  },
+  saveCustomerSessions(sessions) {
+    localStorage.setItem(STORAGE_KEYS.tableSessions, JSON.stringify(sessions));
+  },
   getCustomerSession() {
     const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.customerSession), null);
-    return stored && stored.id ? stored : null;
+    if (!stored || !stored.id) return null;
+    const tableSession = this.getCustomerSessions().find(session => session.id === stored.id);
+    return tableSession ? { ...stored, ...tableSession } : stored;
   },
   saveCustomerSession(session) {
     localStorage.setItem(STORAGE_KEYS.customerSession, JSON.stringify(session));
+    const sessions = this.getCustomerSessions();
+    const index = sessions.findIndex(item => item.id === session.id);
+    const normalized = { ...session, status: session.status || "ativa", openedAt: session.openedAt || session.createdAt || new Date().toISOString() };
+    if (index >= 0) sessions[index] = { ...sessions[index], ...normalized };
+    else sessions.unshift(normalized);
+    this.saveCustomerSessions(sessions.slice(0, 200));
   },
   clearCustomerSession() {
     localStorage.removeItem(STORAGE_KEYS.customerSession);
@@ -96,7 +113,7 @@ function safeJsonParse(value, fallback) {
 }
 
 function escapeHtml(value) {
-  return String(value || "")
+  return String(value == null ? "" : value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -159,6 +176,43 @@ function getCustomerSession() {
   return DataService.getCustomerSession();
 }
 
+function isCurrentSessionClosed(session = customerSession || getCustomerSession()) {
+  return Boolean(session && session.status === "finalizada");
+}
+
+function clearCustomerSession() {
+  DataService.clearCustomerSession();
+  customerSession = null;
+  lastCreatedOrder = null;
+  const whatsappButton = $("#sendWhatsAppSecondary");
+  if (whatsappButton) whatsappButton.disabled = true;
+  syncTableInputs(getTableFromURL());
+}
+
+function startNewCustomerSession() {
+  clearCustomerSession();
+  renderCustomerStatus();
+  openCustomerStartModal();
+  showToast("Inicie um novo atendimento para esta mesa.");
+}
+
+function handleClosedTableState(session = customerSession || getCustomerSession()) {
+  if (!isCurrentSessionClosed(session)) return false;
+  customerSession = session;
+  closeCart();
+  const wrapper = $("#customerStatusList");
+  if (wrapper) {
+    wrapper.innerHTML = '<div class="closed-session"><strong>Atendimento finalizado. Obrigado pela visita!</strong><span>Para fazer novos pedidos, inicie um novo atendimento.</span><button class="btn btn--primary" type="button" id="startNewCustomerSession">Iniciar novo atendimento</button></div>';
+  }
+  return true;
+}
+
+function checkIfTableIsClosed() {
+  const session = getCustomerSession();
+  if (!session) return false;
+  return handleClosedTableState(session);
+}
+
 function nextCustomerSessionId() {
   const next = Number(localStorage.getItem(STORAGE_KEYS.sessionCounter) || 0) + 1;
   localStorage.setItem(STORAGE_KEYS.sessionCounter, String(next));
@@ -170,15 +224,17 @@ function saveCustomerSession(data) {
   const session = {
     id: data.id || nextCustomerSessionId(),
     customerName: String(data.customerName || "").trim(),
-    customerPhone: String(data.customerPhone || "").replace(/\D/g, ""),
+    customerPhone: String(data.customerPhone || "").replace(/D/g, ""),
     table: sanitizeTable(data.table),
     peopleCount: Number(data.peopleCount || 0),
     hasMinors: Boolean(data.hasMinors),
     minors: Array.isArray(data.minors) ? data.minors : [],
+    status: data.status || "ativa",
+    openedAt: data.openedAt || data.createdAt || now,
     createdAt: data.createdAt || now,
     updatedAt: now
   };
-  localStorage.setItem(STORAGE_KEYS.customerSession, JSON.stringify(session));
+  DataService.saveCustomerSession(session);
   customerSession = session;
   applyCustomerSession(session);
   return session;
@@ -395,6 +451,10 @@ function createOrderRequest() {
     openCustomerStartModal();
     return null;
   }
+  if (handleClosedTableState(session)) {
+    showToast("Atendimento finalizado. Inicie um novo atendimento para pedir novamente.");
+    return null;
+  }
 
   const request = saveServiceRequest({
     type: "pedido",
@@ -414,7 +474,7 @@ function createOrderRequest() {
   clearCart();
   closeCart();
   renderCustomerStatus();
-  showToast(`Pedido ${request.id} enviado para o painel.`);
+  showToast("Pedido " + request.id + " enviado para o painel.");
   return request;
 }
 
@@ -426,6 +486,10 @@ function createQuickRequest(type) {
     openCustomerStartModal();
     return null;
   }
+  if (handleClosedTableState(session)) {
+    showToast("Atendimento finalizado. Inicie um novo atendimento para solicitar novamente.");
+    return null;
+  }
 
   const request = saveServiceRequest({
     type,
@@ -433,17 +497,17 @@ function createQuickRequest(type) {
     table: session.table,
     customerName: session.customerName,
     customerPhone: session.customerPhone,
-    note: action ? action.title : "Solicitação de atendimento"
+    note: action ? action.title : "Solicitacao de atendimento"
   });
 
   const messages = {
-    garcom: "Garçom chamado com sucesso.",
+    garcom: "Garcom chamado com sucesso.",
     conta: "Pedido de conta enviado para atendimento.",
     gelo: "Pedido de gelo enviado para atendimento.",
-    limpeza: "Solicitação de limpeza enviada.",
+    limpeza: "Solicitacao de limpeza enviada.",
     atendimento: "Mensagem enviada para atendimento."
   };
-  showToast(messages[type] || "Solicitação enviada para atendimento.");
+  showToast(messages[type] || "Solicitacao enviada para atendimento.");
   renderCustomerStatus();
   return request;
 }
@@ -474,23 +538,24 @@ function getSessionRequests() {
 function renderCustomerStatus() {
   const wrapper = $("#customerStatusList");
   if (!wrapper) return;
+  if (handleClosedTableState()) return;
   const requests = getSessionRequests();
   if (!requests.length) {
-    wrapper.innerHTML = '<div class="empty-state"><strong>Nenhuma solicitaÃ§Ã£o enviada ainda.</strong><span>Seus pedidos e chamados aparecerÃ£o aqui.</span></div>';
+    wrapper.innerHTML = '<div class="empty-state"><strong>Nenhuma solicitacao enviada ainda.</strong><span>Seus pedidos e chamados aparecerao aqui.</span></div>';
     return;
   }
   wrapper.innerHTML = requests.map(request => {
     const totalItems = (request.items || []).reduce((total, item) => total + Number(item.quantity || 0), 0);
     const detail = request.type === "pedido" ? (totalItems ? totalItems + " item(ns)" : "Pedido") : (request.note || formatRequestType(request.type));
-    return `
-      <article class="status-card status-${escapeHtml(request.status)}">
-        <div>
-          <strong>${formatRequestType(request.type)}</strong>
-          <span>${escapeHtml(detail)} â€¢ ${formatShortDate(request.createdAt)}</span>
-        </div>
-        <mark>${formatStatus(request.status)}</mark>
-      </article>
-    `;
+    return [
+      '<article class="status-card status-' + escapeHtml(request.status) + '">',
+      '<div>',
+      '<strong>' + formatRequestType(request.type) + '</strong>',
+      '<span>' + escapeHtml(detail) + ' - ' + formatShortDate(request.createdAt) + '</span>',
+      '</div>',
+      '<mark>' + formatStatus(request.status) + '</mark>',
+      '</article>'
+    ].join("");
   }).join("");
 }
 
@@ -808,12 +873,7 @@ function bindGlobalEvents() {
   });
   $("#editCustomerSession")?.addEventListener("click", openCustomerStartModal);
   $("#clearCustomerSession")?.addEventListener("click", () => {
-    DataService.clearCustomerSession();
-    customerSession = null;
-    lastCreatedOrder = null;
-    const whatsappButton = $("#sendWhatsAppSecondary");
-    if (whatsappButton) whatsappButton.disabled = true;
-    syncTableInputs(getTableFromURL());
+    clearCustomerSession();
     renderCustomerStatus();
     openCustomerStartModal();
   });
@@ -824,7 +884,14 @@ function bindGlobalEvents() {
   });
 
   window.addEventListener("storage", event => {
-    if (!event.key || event.key === STORAGE_KEYS.serviceRequests || event.key === STORAGE_KEYS.customerSession) renderCustomerStatus();
+    if (!event.key || event.key === STORAGE_KEYS.serviceRequests || event.key === STORAGE_KEYS.customerSession || event.key === STORAGE_KEYS.tableSessions) {
+      checkIfTableIsClosed();
+      renderCustomerStatus();
+    }
+  });
+
+  document.addEventListener("click", event => {
+    if (event.target.closest("#startNewCustomerSession")) startNewCustomerSession();
   });
 }
 
@@ -840,7 +907,8 @@ function init() {
   initGalleryModal();
   bindGlobalEvents();
   initCustomerSessionGate();
-  setInterval(renderCustomerStatus, 1000);
+  checkIfTableIsClosed();
+  setInterval(() => { checkIfTableIsClosed(); renderCustomerStatus(); }, 1000);
 }
 
 initLoader();

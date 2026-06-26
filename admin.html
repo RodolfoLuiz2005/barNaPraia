@@ -49,7 +49,39 @@
 
       <section class="admin-stats" id="adminStats" aria-label="Resumo do atendimento"></section>
 
-      <section class="admin-card request-center">
+      <nav class="admin-tabs" id="adminTabs" aria-label="Areas do painel ADM">
+        <button class="admin-tab is-active" type="button" data-admin-tab="dashboard">Dashboard</button>
+        <button class="admin-tab" type="button" data-admin-tab="mesas">Mesas ativas</button>
+        <button class="admin-tab" type="button" data-admin-tab="solicitacoes">Solicitacoes</button>
+        <button class="admin-tab" type="button" data-admin-tab="pedidos">Pedidos</button>
+        <button class="admin-tab" type="button" data-admin-tab="historico">Historico</button>
+        <button class="admin-tab" type="button" data-admin-tab="cardapio">Cardapio</button>
+        <button class="admin-tab" type="button" data-admin-tab="configuracoes">Configuracoes</button>
+      </nav>
+
+      <section class="admin-card admin-panel is-active" data-admin-panel="dashboard">
+        <div class="request-center__header">
+          <div>
+            <span class="eyebrow">Operacao do dia</span>
+            <h2>Resumo operacional</h2>
+          </div>
+          <span>Dados locais deste navegador</span>
+        </div>
+        <div class="daily-report" id="dailyReport"></div>
+      </section>
+
+      <section class="admin-card table-center admin-panel" data-admin-panel="mesas">
+        <div class="request-center__header">
+          <div>
+            <span class="eyebrow">Mesas ativas</span>
+            <h2>Atendimentos em aberto</h2>
+          </div>
+          <span id="activeTablesCount">0 mesas</span>
+        </div>
+        <div class="admin-tables" id="activeTables"></div>
+      </section>
+
+      <section class="admin-card request-center admin-panel" data-admin-panel="solicitacoes">
         <div class="request-center__header">
           <div>
             <span class="eyebrow">Fila</span>
@@ -73,7 +105,35 @@
         <div class="admin-requests" id="adminRequests"></div>
       </section>
 
-      <details class="admin-card admin-config">
+      <section class="admin-card request-center admin-panel" data-admin-panel="pedidos">
+        <div class="request-center__header">
+          <div>
+            <span class="eyebrow">Pedidos</span>
+            <h2>Pedidos da cozinha/bar</h2>
+          </div>
+          <span>Itens enviados pelo cardapio</span>
+        </div>
+        <div class="admin-requests" id="adminOrders"></div>
+      </section>
+
+      <section class="admin-card table-center admin-panel" data-admin-panel="historico">
+        <div class="request-center__header">
+          <div>
+            <span class="eyebrow">Historico</span>
+            <h2>Mesas finalizadas</h2>
+          </div>
+          <span id="closedTablesCount">0 mesas</span>
+        </div>
+        <div class="history-filters">
+          <button class="filter-btn is-active" type="button" data-history-filter="hoje">Hoje</button>
+          <button class="filter-btn" type="button" data-history-filter="todas">Todas</button>
+          <label>Por mesa<input type="search" id="historyTableSearch" placeholder="Ex.: 08" /></label>
+          <label>Por responsavel<input type="search" id="historyCustomerSearch" placeholder="Ex.: Rodolfo" /></label>
+        </div>
+        <div class="admin-tables" id="closedTables"></div>
+      </section>
+
+      <details class="admin-card admin-config admin-panel" data-admin-panel="cardapio">
         <summary>Configurações e cardápio</summary>
         <div class="admin-config__grid">
           <form id="settingsForm" class="cart-form">
@@ -108,8 +168,27 @@
           <div class="admin-products" id="adminProducts"></div>
         </div>
       </details>
+
+      <section class="admin-card admin-panel" data-admin-panel="configuracoes">
+        <span class="eyebrow">Configuracoes</span>
+        <h2>Producao real</h2>
+        <p>Este painel ainda usa localStorage para demonstracao. Em producao, conecte autenticacao real, Supabase/Firebase ou API propria com banco em tempo real.</p>
+      </section>
     </section>
   </main>
+
+  <div class="finish-modal" id="finishTableModal" role="dialog" aria-modal="true" aria-labelledby="finishTableTitle" hidden>
+    <div class="finish-modal__panel">
+      <span class="eyebrow">Finalizar atendimento</span>
+      <h2 id="finishTableTitle">Finalizar mesa?</h2>
+      <p id="finishTableText">Essa acao indica que o cliente foi embora. Os pedidos e chamados em aberto dessa mesa serao encerrados e enviados para o historico.</p>
+      <div class="finish-warning" id="finishTableWarning" hidden></div>
+      <div class="admin-actions">
+        <button class="btn btn--light" type="button" id="cancelFinishTable">Cancelar</button>
+        <button class="btn btn--danger" type="button" id="confirmFinishTable">Confirmar finalizacao</button>
+      </div>
+    </div>
+  </div>
 
   <div class="toast" id="adminToast" role="status" aria-live="polite"></div>
 </body>

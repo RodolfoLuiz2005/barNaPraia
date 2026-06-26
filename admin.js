@@ -3,7 +3,9 @@
 const STORAGE_KEYS = {
   products: "marePinaProducts",
   settings: "marePinaSettings",
-  serviceRequests: "marePinaServiceRequests"
+  serviceRequests: "marePinaServiceRequests",
+  tableSessions: "marePinaTableSessions",
+  closedTables: "marePinaClosedTables"
 };
 
 const DEFAULT_SETTINGS = {
@@ -40,6 +42,7 @@ const DEFAULT_PRODUCTS = [
 const $ = selector => document.querySelector(selector);
 const $$ = selector => Array.from(document.querySelectorAll(selector));
 
+// Data boundary: replace these localStorage calls with Firebase, Supabase, auth and realtime listeners in production.
 const DataService = {
   getProducts() {
     const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.products), null);
@@ -60,6 +63,54 @@ const DataService = {
   },
   saveRequests(requests) {
     localStorage.setItem(STORAGE_KEYS.serviceRequests, JSON.stringify(requests));
+  },
+  updateRequestStatus(id, status) {
+    const now = new Date().toISOString();
+    let updatedRequest = null;
+    const requests = this.getRequests().map(request => {
+      if (request.id !== id) return request;
+      updatedRequest = {
+        ...request,
+        status,
+        updatedAt: now,
+        history: [...(request.history || []), { status, at: now }]
+      };
+      return updatedRequest;
+    });
+    this.saveRequests(requests);
+    return updatedRequest;
+  },
+  getCustomerSessions() {
+    const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.tableSessions), []);
+    return Array.isArray(stored) ? stored : [];
+  },
+  saveCustomerSessions(sessions) {
+    localStorage.setItem(STORAGE_KEYS.tableSessions, JSON.stringify(sessions));
+  },
+  updateCustomerSession(sessionId, data) {
+    const sessions = this.getCustomerSessions();
+    const index = sessions.findIndex(session => session.id === sessionId);
+    if (index < 0) return null;
+    sessions[index] = { ...sessions[index], ...data, updatedAt: new Date().toISOString() };
+    this.saveCustomerSessions(sessions);
+    return sessions[index];
+  },
+  getClosedTables() {
+    const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.closedTables), []);
+    return Array.isArray(stored) ? stored : [];
+  },
+  saveClosedTables(tables) {
+    localStorage.setItem(STORAGE_KEYS.closedTables, JSON.stringify(tables));
+  },
+  finishTable(sessionId, summary) {
+    const sessions = this.getCustomerSessions();
+    const index = sessions.findIndex(session => session.id === sessionId);
+    if (index >= 0) sessions[index] = { ...sessions[index], ...summary, status: "finalizada" };
+    else sessions.unshift({ ...summary, id: sessionId, status: "finalizada" });
+    this.saveCustomerSessions(sessions);
+    const closed = this.getClosedTables().filter(table => table.id !== sessionId);
+    closed.unshift({ ...summary, id: sessionId, status: "finalizada" });
+    this.saveClosedTables(closed.slice(0, 300));
   }
 };
 
@@ -76,7 +127,7 @@ function safeJsonParse(value, fallback) {
 }
 
 function escapeHtml(value) {
-  return String(value || "")
+  return String(value == null ? "" : value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -200,27 +251,14 @@ function showAdminToast(message) {
 
 function filterRequests(type = activeFilter, source = getServiceRequests()) {
   const requests = Array.isArray(source) ? source : [];
-  if (type === "todos") return requests;
-  if (["novo", "em_atendimento", "preparando", "concluido", "cancelado"].includes(type)) return requests.filter(request => request.status === type);
-  return requests.filter(request => request.type === type && !["concluido", "cancelado"].includes(request.status));
+  const visible = requests.filter(request => request.tableSessionStatus !== "finalizada");
+  if (type === "todos") return visible;
+  if (["novo", "em_atendimento", "preparando", "concluido", "cancelado"].includes(type)) return visible.filter(request => request.status === type);
+  return visible.filter(request => request.type === type && !["concluido", "cancelado"].includes(request.status));
 }
 
 function renderDashboardStats() {
-  const stats = $("#adminStats");
-  if (!stats) return;
-  const requests = getServiceRequests();
-  const today = new Date().toISOString().slice(0, 10);
-  const count = predicate => requests.filter(predicate).length;
-  const data = [
-    { label: "Novos pedidos", value: count(req => req.type === "pedido" && req.status === "novo") },
-    { label: "GarÃ§om", value: count(req => req.type === "garcom" && !["concluido", "cancelado"].includes(req.status)) },
-    { label: "Contas", value: count(req => req.type === "conta" && !["concluido", "cancelado"].includes(req.status)) },
-    { label: "Em atendimento", value: count(req => req.status === "em_atendimento") },
-    { label: "Cancelados", value: count(req => req.status === "cancelado") },
-    { label: "ConcluÃ­dos hoje", value: count(req => req.status === "concluido" && String(req.updatedAt || "").slice(0, 10) === today) }
-  ];
-
-  stats.innerHTML = data.map(item => `<article class="stat-card"><span>${escapeHtml(item.label)}</span><strong>${item.value}</strong></article>`).join("");
+  renderAdminOperationalStats();
 }
 
 function primeKnownRequests() {
@@ -262,13 +300,13 @@ function updateSoundButton() {
   button.classList.toggle("is-active", soundEnabled);
 }
 
-function toggleSound() {
+function toggleSound(event) {
   soundEnabled = !soundEnabled;
   if (soundEnabled) {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (AudioContextClass) {
+    if (AudioContextClass && (!event || event.isTrusted)) {
       audioContext = audioContext || new AudioContextClass();
-      if (audioContext.state === "suspended") audioContext.resume();
+      if (audioContext.state === "suspended") audioContext.resume().catch(() => {});
     }
     primeKnownRequests();
     showAdminToast("Som ativado para novas solicitaÃ§Ãµes.");
@@ -355,21 +393,323 @@ function renderAdminRequests(force = false) {
 }
 
 function updateRequestStatus(id, status) {
-  const now = new Date().toISOString();
-  const requests = getServiceRequests();
-  const updated = requests.map(request => {
-    if (request.id !== id) return request;
-    return {
-      ...request,
-      status,
-      updatedAt: now,
-      history: [...(request.history || []), { status, at: now }]
-    };
-  });
-  saveServiceRequests(updated);
+  const updatedRequest = DataService.updateRequestStatus(id, status);
+  if (!updatedRequest) return;
   lastRenderedSignature = "";
   renderAdminRequests(true);
-  showAdminToast(`Solicitação ${id} atualizada para ${formatStatus(status)}.`);
+  renderAllAdminViews(true);
+  showAdminToast("Solicitacao " + id + " atualizada para " + formatStatus(status) + ".");
+}
+
+function getRequestSessionKey(request) {
+  return request.sessionId || [request.table || "sem-mesa", request.customerPhone || "sem-fone"].join("::");
+}
+
+function getRequestsByTable(sessionId) {
+  const session = getAllTableSessions().find(item => item.id === sessionId);
+  if (!session) return [];
+  return getServiceRequests().filter(request => {
+    if (request.sessionId && request.sessionId === session.id) return true;
+    return !request.sessionId && request.table === session.table && request.customerPhone === session.customerPhone;
+  });
+}
+
+function getAllTableSessions() {
+  const stored = DataService.getCustomerSessions();
+  const map = new Map(stored.map(session => [session.id, { ...session }]));
+  getServiceRequests().forEach(request => {
+    const key = getRequestSessionKey(request);
+    const current = map.get(key) || {
+      id: key,
+      table: request.table || "Nao informada",
+      customerName: request.customerName || "Nao informado",
+      customerPhone: request.customerPhone || "",
+      peopleCount: Number(request.peopleCount || 0),
+      hasMinors: Boolean(request.hasMinors),
+      minors: request.minors || [],
+      status: request.tableSessionStatus === "finalizada" ? "finalizada" : "ativa",
+      openedAt: request.createdAt,
+      createdAt: request.createdAt
+    };
+    current.openedAt = current.openedAt && request.createdAt ? (new Date(current.openedAt) < new Date(request.createdAt) ? current.openedAt : request.createdAt) : (current.openedAt || request.createdAt);
+    current.hasMinors = current.hasMinors || Boolean(request.hasMinors);
+    current.minors = current.minors && current.minors.length ? current.minors : (request.minors || []);
+    if (request.tableSessionStatus === "finalizada") current.status = "finalizada";
+    map.set(key, current);
+  });
+  return Array.from(map.values());
+}
+
+function calculateTableTotal(sessionId) {
+  return getRequestsByTable(sessionId).filter(request => request.type === "pedido").reduce((total, request) => total + Number(request.total || 0), 0);
+}
+
+function calculateTableDuration(openedAt, closedAt = new Date().toISOString()) {
+  if (!openedAt) return "agora";
+  const totalMinutes = Math.max(0, Math.floor((new Date(closedAt).getTime() - new Date(openedAt).getTime()) / 60000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (!hours) return minutes < 1 ? "agora" : minutes + "min";
+  return hours + "h " + String(minutes).padStart(2, "0") + "min";
+}
+
+function buildTableSummary(session) {
+  const requests = getRequestsByTable(session.id);
+  const openRequests = requests.filter(request => !["concluido", "cancelado"].includes(request.status));
+  const pedidos = requests.filter(request => request.type === "pedido");
+  const openPedidos = pedidos.filter(request => !["concluido", "cancelado"].includes(request.status));
+  const chamados = requests.filter(request => request.type !== "pedido");
+  const openChamados = chamados.filter(request => !["concluido", "cancelado"].includes(request.status));
+  return {
+    ...session,
+    requests,
+    openRequests,
+    pedidos,
+    chamados,
+    openPedidosCount: openPedidos.length,
+    openChamadosCount: openChamados.length,
+    totalConsumed: calculateTableTotal(session.id),
+    totalRequests: requests.length,
+    totalOrders: pedidos.length,
+    totalCalls: chamados.length,
+    needsBracelet: (session.minors || []).some(minor => minor.needsBracelet)
+  };
+}
+
+function getActiveTables() {
+  return getAllTableSessions()
+    .filter(session => session.status !== "finalizada")
+    .map(buildTableSummary)
+    .sort((a, b) => new Date(a.openedAt || 0) - new Date(b.openedAt || 0));
+}
+
+function getClosedTables() {
+  const closedMap = new Map(DataService.getClosedTables().map(table => [table.id, table]));
+  getAllTableSessions().filter(session => session.status === "finalizada").forEach(session => {
+    closedMap.set(session.id, { ...closedMap.get(session.id), ...buildTableSummary(session) });
+  });
+  return Array.from(closedMap.values()).sort((a, b) => new Date(b.closedAt || 0) - new Date(a.closedAt || 0));
+}
+
+function closeOpenRequestsByTable(sessionId, closedAt) {
+  const session = getAllTableSessions().find(item => item.id === sessionId);
+  if (!session) return [];
+  const updated = getServiceRequests().map(request => {
+    const belongs = request.sessionId === session.id || (!request.sessionId && request.table === session.table && request.customerPhone === session.customerPhone);
+    if (!belongs) return request;
+    const nextStatus = ["cancelado", "concluido"].includes(request.status) ? request.status : "concluido";
+    return {
+      ...request,
+      status: nextStatus,
+      tableSessionStatus: "finalizada",
+      tableClosedAt: closedAt,
+      updatedAt: closedAt,
+      history: request.status === nextStatus ? (request.history || []) : [...(request.history || []), { status: nextStatus, at: closedAt }]
+    };
+  });
+  DataService.saveRequests(updated);
+  return updated;
+}
+
+function finishTable(sessionId) {
+  const session = getActiveTables().find(table => table.id === sessionId);
+  if (!session) return;
+  const closedAt = new Date().toISOString();
+  closeOpenRequestsByTable(sessionId, closedAt);
+  const closedSummary = {
+    ...session,
+    status: "finalizada",
+    closedAt,
+    openedAt: session.openedAt || session.createdAt || closedAt,
+    totalConsumed: session.totalConsumed,
+    totalRequests: session.totalRequests,
+    durationText: calculateTableDuration(session.openedAt || session.createdAt, closedAt)
+  };
+  DataService.finishTable(sessionId, closedSummary);
+  lastRenderedSignature = "";
+  renderAdminRequests(true);
+  renderAllAdminViews(true);
+  showAdminToast("Mesa " + (session.table || "") + " finalizada com sucesso.");
+}
+
+let pendingFinishTableId = "";
+let activeAdminTab = "dashboard";
+let activeHistoryFilter = "hoje";
+let tableOpsBound = false;
+
+function openFinishTableModal(sessionId) {
+  const table = getActiveTables().find(item => item.id === sessionId);
+  if (!table) return;
+  pendingFinishTableId = sessionId;
+  const modal = $("#finishTableModal");
+  const title = $("#finishTableTitle");
+  const text = $("#finishTableText");
+  const warning = $("#finishTableWarning");
+  if (title) title.textContent = "Finalizar mesa " + (table.table || "") + "?";
+  if (text) text.textContent = "Essa acao indica que o cliente foi embora. Os pedidos e chamados em aberto dessa mesa serao encerrados e enviados para o historico.";
+  const hasOpenOrders = table.requests.some(request => request.type === "pedido" && ["novo", "preparando", "em_atendimento"].includes(request.status));
+  if (warning) {
+    warning.hidden = !hasOpenOrders;
+    warning.textContent = hasOpenOrders ? "Essa mesa ainda possui pedidos em aberto. Deseja finalizar mesmo assim?" : "";
+  }
+  if (modal) modal.hidden = false;
+  document.body.classList.add("no-scroll");
+}
+
+function closeFinishTableModal() {
+  pendingFinishTableId = "";
+  const modal = $("#finishTableModal");
+  if (modal) modal.hidden = true;
+  document.body.classList.remove("no-scroll");
+}
+
+function confirmFinishTable() {
+  if (!pendingFinishTableId) return;
+  const target = pendingFinishTableId;
+  closeFinishTableModal();
+  finishTable(target);
+}
+
+function tableMetric(label, value) {
+  return '<div class="table-metric"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value) + '</strong></div>';
+}
+
+function renderRequestMiniList(requests) {
+  if (!requests.length) return '<div class="empty-state"><strong>Nenhuma solicitacao.</strong><span>Sem pedidos ou chamados para esta mesa.</span></div>';
+  return '<ul class="request-items">' + requests.map(request => '<li>' + escapeHtml(formatRequestType(request.type)) + ' ' + escapeHtml(request.id || '') + ' <span>' + escapeHtml(formatStatus(request.status)) + '</span></li>').join('') + '</ul>';
+}
+
+function renderTableCard(table, closed = false) {
+  const minors = table.hasMinors ? 'Sim' : 'Nao';
+  const bracelet = table.needsBracelet ? 'Sim' : 'Nao';
+  const topText = closed ? ('Fechada em ' + formatDate(table.closedAt)) : ('Aberta ha ' + calculateTableDuration(table.openedAt || table.createdAt));
+  return '<article class="table-card ' + (closed ? 'is-closed ' : '') + (table.hasMinors ? 'has-minors' : '') + '" data-table-session-id="' + escapeHtml(table.id) + '">' +
+    '<div class="table-card__top"><div><h3>Mesa ' + escapeHtml(table.table || 'Nao informada') + '</h3><span>' + escapeHtml(topText) + '</span></div><mark>' + escapeHtml(closed ? 'Finalizada' : 'Ativa') + '</mark></div>' +
+    '<div class="table-metrics">' +
+      tableMetric('Responsavel', table.customerName || 'Nao informado') +
+      tableMetric('Pessoas', String(table.peopleCount || 'Nao informado')) +
+      tableMetric('Menor de idade', minors) +
+      tableMetric('Fitinha', bracelet) +
+      tableMetric('Pedidos abertos', String(table.openPedidosCount || 0)) +
+      tableMetric('Chamados abertos', String(table.openChamadosCount || 0)) +
+      tableMetric('Total', formatCurrency(table.totalConsumed || 0)) +
+      tableMetric(closed ? 'Tempo total' : 'Tempo', closed ? (table.durationText || calculateTableDuration(table.openedAt, table.closedAt)) : calculateTableDuration(table.openedAt || table.createdAt)) +
+    '</div>' +
+    (table.hasMinors ? renderMinorInfo(table.minors || []) : '') +
+    '<div class="table-details">' + renderRequestMiniList(table.requests || []) + '</div>' +
+    '<div class="request-actions">' +
+      '<button class="btn btn--light btn--small" type="button" data-table-details="' + escapeHtml(table.id) + '">Ver detalhes</button>' +
+      (table.customerPhone ? '<a class="btn btn--dark btn--small" href="' + buildWhatsAppUrl(table.customerPhone, 'Ola, aqui e o atendimento da mesa ' + (table.table || '')) + '" target="_blank" rel="noopener">WhatsApp</a>' : '') +
+      (closed ? '' : '<button class="btn btn--danger btn--small" type="button" data-finish-table="' + escapeHtml(table.id) + '">Finalizar mesa</button>') +
+    '</div>' +
+  '</article>';
+}
+
+function renderActiveTables() {
+  const wrapper = $("#activeTables");
+  const count = $("#activeTablesCount");
+  if (!wrapper) return;
+  const tables = getActiveTables();
+  if (count) count.textContent = tables.length + (tables.length === 1 ? " mesa" : " mesas");
+  wrapper.innerHTML = tables.length ? tables.map(table => renderTableCard(table)).join("") : '<div class="empty-state"><strong>Nenhuma mesa ativa.</strong><span>As mesas aparecem aqui apos check-in ou pedido.</span></div>';
+}
+
+function filterClosedTables(tables) {
+  const tableSearch = ($("#historyTableSearch")?.value || "").trim().toLowerCase();
+  const customerSearch = ($("#historyCustomerSearch")?.value || "").trim().toLowerCase();
+  const today = new Date().toISOString().slice(0, 10);
+  return tables.filter(table => {
+    const matchesDate = activeHistoryFilter === "todas" || String(table.closedAt || "").slice(0, 10) === today;
+    const matchesTable = !tableSearch || String(table.table || "").toLowerCase().includes(tableSearch);
+    const matchesCustomer = !customerSearch || String(table.customerName || "").toLowerCase().includes(customerSearch);
+    return matchesDate && matchesTable && matchesCustomer;
+  });
+}
+
+function renderClosedTables() {
+  const wrapper = $("#closedTables");
+  const count = $("#closedTablesCount");
+  if (!wrapper) return;
+  const tables = filterClosedTables(getClosedTables());
+  if (count) count.textContent = tables.length + (tables.length === 1 ? " mesa" : " mesas");
+  wrapper.innerHTML = tables.length ? tables.map(table => renderTableCard(table, true)).join("") : '<div class="empty-state"><strong>Nenhuma mesa finalizada.</strong><span>Finalize uma mesa para alimentar o historico.</span></div>';
+}
+
+function renderOrders() {
+  const wrapper = $("#adminOrders");
+  if (!wrapper) return;
+  const orders = filterRequests("pedido", getServiceRequests());
+  wrapper.innerHTML = orders.length ? orders.map(request => {
+    const items = (request.items || []).map(item => '<li>' + escapeHtml(item.quantity) + 'x ' + escapeHtml(item.name) + ' <span>' + formatCurrency(item.total || item.price * item.quantity) + '</span></li>').join('');
+    return '<article class="request-card request-card--pedido status-' + escapeHtml(request.status) + '"><div class="request-card__top"><div><strong>' + escapeHtml(request.id) + '</strong><span>Mesa ' + escapeHtml(request.table || 'Nao informada') + ' - ' + formatDate(request.createdAt) + '</span></div><mark>' + formatStatus(request.status) + '</mark></div>' + (items ? '<ul class="request-items">' + items + '</ul>' : '') + '<div class="request-total"><span>Total</span><strong>' + formatCurrency(request.total || 0) + '</strong></div></article>';
+  }).join('') : '<div class="empty-state"><strong>Nenhum pedido ativo.</strong><span>Pedidos finalizados com a mesa saem desta fila.</span></div>';
+}
+
+function renderAdminOperationalStats() {
+  const stats = $("#adminStats");
+  const report = $("#dailyReport");
+  const requests = getServiceRequests();
+  const activeTables = getActiveTables();
+  const closedToday = getClosedTables().filter(table => String(table.closedAt || "").slice(0, 10) === new Date().toISOString().slice(0, 10));
+  const totalSold = closedToday.reduce((total, table) => total + Number(table.totalConsumed || 0), 0);
+  const avgTicket = closedToday.length ? Math.round(totalSold / closedToday.length) : 0;
+  const count = predicate => requests.filter(predicate).length;
+  const data = [
+    { label: "Mesas ativas", value: activeTables.length },
+    { label: "Finalizadas hoje", value: closedToday.length },
+    { label: "Total vendido hoje", value: formatCurrency(totalSold) },
+    { label: "Pedidos concluidos", value: count(req => req.type === "pedido" && req.status === "concluido") },
+    { label: "Chamados concluidos", value: count(req => req.type !== "pedido" && req.status === "concluido") },
+    { label: "Contas solicitadas", value: count(req => req.type === "conta" && req.tableSessionStatus !== "finalizada") },
+    { label: "Ticket medio", value: formatCurrency(avgTicket) }
+  ];
+  const markup = data.map(item => '<article class="stat-card"><span>' + escapeHtml(item.label) + '</span><strong>' + escapeHtml(item.value) + '</strong></article>').join('');
+  if (stats) stats.innerHTML = markup;
+  if (report) report.innerHTML = markup;
+}
+
+function renderAllAdminViews() {
+  renderAdminOperationalStats();
+  renderActiveTables();
+  renderClosedTables();
+  renderOrders();
+}
+
+function setAdminTab(tab) {
+  activeAdminTab = tab;
+  $$(".admin-tab").forEach(button => button.classList.toggle("is-active", button.dataset.adminTab === tab));
+  $$("[data-admin-panel]").forEach(panel => panel.classList.toggle("is-active", panel.dataset.adminPanel === tab));
+  renderAllAdminViews(true);
+}
+
+function setupTableOperations() {
+  if (tableOpsBound) return;
+  tableOpsBound = true;
+  $("#adminTabs")?.addEventListener("click", event => {
+    const button = event.target.closest("[data-admin-tab]");
+    if (button) setAdminTab(button.dataset.adminTab);
+  });
+  document.addEventListener("click", event => {
+    const detailButton = event.target.closest("[data-table-details]");
+    if (detailButton) {
+      detailButton.closest(".table-card")?.classList.toggle("is-expanded");
+      return;
+    }
+    const finishButton = event.target.closest("[data-finish-table]");
+    if (finishButton) openFinishTableModal(finishButton.dataset.finishTable);
+  });
+  $("#cancelFinishTable")?.addEventListener("click", closeFinishTableModal);
+  $("#confirmFinishTable")?.addEventListener("click", confirmFinishTable);
+  $("#finishTableModal")?.addEventListener("click", event => { if (event.target.id === "finishTableModal") closeFinishTableModal(); });
+  $("#historyTableSearch")?.addEventListener("input", renderClosedTables);
+  $("#historyCustomerSearch")?.addEventListener("input", renderClosedTables);
+  document.addEventListener("click", event => {
+    const button = event.target.closest("[data-history-filter]");
+    if (!button) return;
+    activeHistoryFilter = button.dataset.historyFilter;
+    $$('[data-history-filter]').forEach(item => item.classList.toggle('is-active', item === button));
+    renderClosedTables();
+  });
 }
 
 function moneyFromCents(cents) {
@@ -432,6 +772,7 @@ function showDashboard() {
   primeKnownRequests();
   updateSoundButton();
   renderAdminRequests(true);
+  renderAllAdminViews(true);
 }
 
 function bindEvents() {
@@ -466,7 +807,7 @@ function bindEvents() {
     if (card) updateRequestStatus(card.dataset.requestId, button.dataset.status);
   });
 
-  $("#refreshRequests")?.addEventListener("click", () => { lastRenderedSignature = ""; renderAdminRequests(true); showAdminToast("Painel atualizado."); });
+  $("#refreshRequests")?.addEventListener("click", () => { lastRenderedSignature = ""; renderAdminRequests(true); renderAllAdminViews(true); showAdminToast("Painel atualizado."); });
   $("#toggleSound")?.addEventListener("click", toggleSound);
 
   $("#clearCompleted")?.addEventListener("click", () => {
@@ -520,15 +861,20 @@ function bindEvents() {
     if (!event.key || event.key === STORAGE_KEYS.serviceRequests) {
       lastRenderedSignature = "";
       renderAdminRequests(true);
+      renderAllAdminViews(true);
     }
+    if (event.key === STORAGE_KEYS.tableSessions || event.key === STORAGE_KEYS.closedTables) renderAllAdminViews(true);
   });
 }
 
 function init() {
   populateSelects();
   bindEvents();
+  setupTableOperations();
   if (sessionStorage.getItem("marePinaAdmin") === "true") showDashboard();
+  setAdminTab(activeAdminTab);
   setInterval(renderAdminRequests, 1000);
+  setInterval(renderAllAdminViews, 1000);
 }
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init, { once: true });
