@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description"
+    content="Atendimento digital para restaurante/bar de praia no Pina, Recife, com cardápio, carrinho, QR Code por mesa e painel admin." />
+  <meta name="theme-color" content="#057c92" />
+  <title>Maré Pina Beach Bar | Atendimento na praia</title>
+  <link rel="preload" href="assets/images/hero-praia.svg" as="image" />
+  <link rel="icon" href="assets/icons/sun-wave.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="script.js" defer></script>
+</head>
+
+<body class="is-loading">
+  <a class="skip-link" href="#cardapio">Pular para o cardápio</a>
+
+  <div class="loader" id="pageLoader" role="status" aria-live="polite" aria-label="Carregando site">
+    <div class="loader__card">
+      <div class="loader__icon" aria-hidden="true">Maré</div>
+      <strong>Maré Pina</strong>
+      <span>Preparando atendimento</span>
+      <div class="loader__bar"><i></i></div>
+    </div>
+  </div>
+
+  <header class="site-header" id="siteHeader">
+    <nav class="nav container" aria-label="Navegação principal">
+      <a class="brand" href="#inicio" aria-label="Maré Pina Beach Bar">
+        <span class="brand__icon">MP</span>
+        <span><strong>Maré Pina</strong><small>Beach Bar</small></span>
+      </a>
+
+      <button class="menu-toggle" id="menuToggle" type="button" aria-label="Abrir menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+
+      <div class="nav-links" id="navLinks">
+        <a href="#cardapio">Cardápio</a>
+        <a href="#atendimento">Chamar garçom</a>
+        <a href="#galeria">Galeria</a>
+        <a href="#localizacao">Como chegar</a>
+        <button class="btn btn--primary btn--small" data-open-cart type="button">Ver pedido <span
+            id="cartCountBadge">0</span></button>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero" id="inicio">
+      <div class="container hero__grid">
+        <div class="hero__content">
+          <span class="eyebrow">Praia do Pina • Recife</span>
+          <h1>Peça da mesa e receba atendimento rápido na praia.</h1>
+          <p>Cardápio digital, chamados para a equipe e pedidos direto para o painel do restaurante.</p>
+          <div class="hero__actions">
+            <a class="btn btn--primary" href="#cardapio">Ver cardápio</a>
+            <button class="btn btn--light" type="button" data-quick-request="garcom">Chamar garçom</button>
+            <a class="btn btn--ghost" id="mapsButton" href="#localizacao">Como chegar</a>
+          </div>
+        </div>
+        <aside class="service-card" aria-label="Resumo do atendimento">
+          <strong>Atendimento pelo painel</strong>
+          <span>Pedido, conta, gelo, limpeza e mensagens chegam na central ADM.</span>
+          <button class="btn btn--dark btn--full" data-open-cart type="button">Ver meu pedido</button>
+        </aside>
+      </div>
+    </section>
+
+    <section class="table-strip" id="mesa">
+      <div class="container table-strip__inner">
+        <div>
+          <span class="eyebrow">QR Code da mesa</span>
+          <strong id="tableStatusText">Mesa/guarda-sol não informado</strong>
+        </div>
+        <div class="table-actions">
+          <button class="link-button" id="editCustomerSession" type="button">Editar dados da mesa</button>
+          <button class="link-button link-button--danger" id="clearCustomerSession" type="button">Limpar dados da
+            mesa</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section quick-service" id="atendimento" aria-labelledby="quick-title">
+      <div class="container">
+        <div class="section-heading section-heading--compact">
+          <span class="eyebrow">Ações rápidas</span>
+          <h2 id="quick-title">O que você precisa agora?</h2>
+        </div>
+        <div class="quick-grid" id="assistActions"></div>
+      </div>
+    </section>
+
+    <section class="section menu-section" id="cardapio" aria-labelledby="menu-title">
+      <div class="container">
+        <div class="menu-top">
+          <div>
+            <span class="eyebrow">Cardápio digital</span>
+            <h2 id="menu-title">Escolha e envie para atendimento.</h2>
+          </div>
+          <button class="btn btn--primary" data-open-cart type="button">Ver pedido <span
+              id="floatingCartCountInline">0</span></button>
+        </div>
+        <div class="category-scroller" id="categoryScroller" aria-label="Categorias do cardápio"></div>
+        <div class="menu-grid" id="menuGrid"></div>
+      </div>
+    </section>
+
+    <section class="section gallery" id="galeria" aria-labelledby="gallery-title">
+      <div class="container">
+        <div class="section-heading section-heading--compact">
+          <span class="eyebrow">Galeria</span>
+          <h2 id="gallery-title">Praia, pratos e drinks.</h2>
+        </div>
+        <div class="gallery-grid" id="galleryGrid">
+          <button class="gallery-item" type="button" data-full="assets/images/gallery-praia.svg"><img
+              src="assets/images/gallery-praia.svg" alt="Praia com mesas e guarda-sóis" /></button>
+          <button class="gallery-item" type="button" data-full="assets/images/gallery-drink.svg"><img
+              src="assets/images/gallery-drink.svg" alt="Drink tropical na praia" /></button>
+          <button class="gallery-item" type="button" data-full="assets/images/gallery-petisco.svg"><img
+              src="assets/images/gallery-petisco.svg" alt="Petiscos de praia servidos na mesa" /></button>
+          <button class="gallery-item" type="button" data-full="assets/images/gallery-peixe.svg"><img
+              src="assets/images/gallery-peixe.svg" alt="Peixe completo servido com acompanhamentos" /></button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section location" id="localizacao" aria-labelledby="location-title">
+      <div class="container location__grid">
+        <div>
+          <span class="eyebrow">Como chegar</span>
+          <h2 id="location-title">Praia do Pina, Recife - PE</h2>
+          <p>Atendimento na areia com pedido por QR Code, Pix/cartão e equipe próxima da mesa.</p>
+          <a class="btn btn--primary" id="mapsButtonFooter" href="#" target="_blank" rel="noopener">Abrir mapa</a>
+        </div>
+        <div class="map-card" aria-label="Mapa ilustrativo">
+          <img src="assets/images/hero-praia.svg" alt="Ilustração da praia do Pina" />
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer__grid">
+      <div>
+        <a class="brand brand--footer" href="#inicio"><span class="brand__icon">MP</span><span><strong>Maré
+              Pina</strong><small>Beach Bar</small></span></a>
+        <p>Atendimento simples para quem está curtindo a praia.</p>
+      </div>
+      <div>
+        <h3>Atalhos</h3>
+        <a href="#cardapio">Cardápio</a>
+        <a href="#atendimento">Atendimento</a>
+        <a href="admin.html">Painel admin</a>
+      </div>
+      <div>
+        <h3>Contato</h3>
+        <a id="footerWhatsapp" href="#" target="_blank" rel="noopener">WhatsApp</a>
+        <a href="https://www.instagram.com/" target="_blank" rel="noopener">Instagram</a>
+        <span id="footerHours">Sáb a Qua • 7h às 17h30</span>
+      </div>
+    </div>
+  </footer>
+
+  <button class="floating-cart" data-open-cart type="button" aria-label="Abrir pedido">
+    Pedido <span id="floatingCartCount">0</span>
+  </button>
+  <button class="floating-waiter" id="floatingWaiter" type="button">Chamar garçom</button>
+  <a class="floating-whatsapp" id="floatingWhatsapp" href="#" target="_blank" rel="noopener"
+    aria-label="Chamar no WhatsApp">WhatsApp</a>
+
+  <div class="customer-start" id="customerStartModal" role="dialog" aria-modal="true"
+    aria-labelledby="customerStartTitle" hidden>
+    <form class="customer-start__panel" id="customerStartForm" novalidate>
+      <div class="customer-start__header">
+        <span class="eyebrow">Antes do cardápio</span>
+        <h2 id="customerStartTitle">Identifique sua mesa</h2>
+        <p>Esses dados ajudam a equipe a atender sua mesa com mais rapidez.</p>
+      </div>
+      <div class="form-grid">
+        <label>Nome do responsável<input type="text" id="sessionCustomerName" autocomplete="name" required /></label>
+        <label>WhatsApp do responsável<input type="tel" id="sessionCustomerPhone" inputmode="tel" autocomplete="tel"
+            required /></label>
+        <label>Mesa ou guarda-sol<input type="text" id="sessionTable" inputmode="numeric" required /></label>
+        <label>Quantidade de pessoas<input type="number" id="sessionPeopleCount" min="1" inputmode="numeric"
+            required /></label>
+      </div>
+      <fieldset class="radio-card">
+        <legend>Tem menor de idade na mesa?</legend>
+        <label><input type="radio" name="sessionHasMinors" value="false" checked /> Não</label>
+        <label><input type="radio" name="sessionHasMinors" value="true" /> Sim</label>
+      </fieldset>
+      <div class="minor-section" id="minorSection" hidden>
+        <div class="minor-section__header">
+          <strong>Dados dos menores</strong>
+          <button class="btn btn--light btn--small" id="addMinorField" type="button">Adicionar menor</button>
+        </div>
+        <div class="minor-list" id="minorFields"></div>
+      </div>
+      <div class="form-message" id="customerStartMessage" role="alert" hidden></div>
+      <button class="btn btn--primary btn--full" type="submit">Continuar para o cardápio</button>
+      <small>Não coletamos documentos. Os dados ficam apenas para controle interno da mesa.</small>
+    </form>
+  </div>
+
+  <div class="cart-backdrop" id="cartBackdrop" hidden></div>
+  <aside class="cart-drawer" id="cartDrawer" aria-label="Carrinho de pedido" aria-hidden="true">
+    <div class="cart-drawer__header">
+      <div><span class="eyebrow">Seu pedido</span>
+        <h2>Carrinho</h2>
+      </div>
+      <button class="icon-button" id="closeCart" type="button" aria-label="Fechar carrinho">×</button>
+    </div>
+    <div class="cart-items" id="cartItems"></div>
+    <div class="cart-empty" id="cartEmpty">Seu carrinho ainda está vazio.</div>
+    <div class="cart-total"><span>Subtotal</span><strong id="cartSubtotal">R$ 0,00</strong></div>
+    <form class="cart-form" id="orderForm">
+      <label>Nome<input type="text" id="clientName" placeholder="Ex.: Rodolfo" required /></label>
+      <label>WhatsApp<input type="tel" id="clientWhatsapp" placeholder="Ex.: (81) 99999-9999" required /></label>
+      <label>Mesa/guarda-sol<input type="text" id="tableNumber" placeholder="Ex.: 08" required /></label>
+      <label>Observação<textarea id="orderNote" rows="3"
+          placeholder="Ex.: sem cebola, gelo separado..."></textarea></label>
+      <button class="btn btn--primary btn--full" type="submit">Enviar pedido para atendimento</button>
+      <button class="btn btn--light btn--full" id="sendWhatsAppSecondary" type="button" disabled>Enviar também pelo
+        WhatsApp</button>
+    </form>
+  </aside>
+
+  <div class="gallery-modal" id="galleryModal" hidden>
+    <button class="icon-button gallery-modal__close" id="closeGalleryModal" type="button"
+      aria-label="Fechar imagem">×</button>
+    <img id="galleryModalImage" src="" alt="Imagem ampliada da galeria" />
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+
+</html>

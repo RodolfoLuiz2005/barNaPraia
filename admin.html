@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <title>Central ADM | Maré Pina Beach Bar</title>
+  <link rel="icon" href="assets/icons/sun-wave.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="admin.js" defer></script>
+</head>
+
+<body class="admin-body">
+  <main class="admin-shell">
+    <header class="admin-header">
+      <a class="brand" href="index.html">
+        <span class="brand__icon">MP</span>
+        <span><strong>Maré Pina</strong><small>Central ADM</small></span>
+      </a>
+      <a class="btn btn--light btn--small" href="index.html?mesa=08">Abrir site teste</a>
+    </header>
+
+    <section class="admin-card login-card" id="loginPanel">
+      <span class="eyebrow">Acesso demonstrativo</span>
+
+      <h1>Central de atendimento</h1>
+
+      <p>Use a senha fictícia <strong>praia123</strong>. Em produção, substitua por autenticação real.</p>
+      
+      <form id="loginForm" class="cart-form">
+        <label>Senha<input type="password" id="adminPassword" placeholder="Digite praia123" required /></label>
+        <button class="btn btn--primary" type="submit">Entrar</button>
+      </form>
+    </section>
+
+    <section class="admin-dashboard admin-hidden" id="dashboardPanel" aria-live="polite">
+      <div class="admin-toolbar">
+        <div>
+          <span class="eyebrow">Painel vivo</span>
+          <h1>Solicitações da praia</h1>
+        </div>
+        <div class="admin-actions">
+          <button class="btn btn--light btn--small" id="refreshRequests" type="button">Atualizar</button>
+          <button class="btn btn--dark btn--small" id="clearCompleted" type="button">Limpar concluídos</button>
+        </div>
+      </div>
+
+      <section class="admin-stats" id="adminStats" aria-label="Resumo do atendimento"></section>
+
+      <section class="admin-card request-center">
+        <div class="request-center__header">
+          <div>
+            <span class="eyebrow">Fila</span>
+            <h2>Pedidos e chamados</h2>
+          </div>
+          <span id="lastUpdateText">Atualizado agora</span>
+        </div>
+        <div class="request-filters" id="requestFilters" aria-label="Filtros de solicitações">
+          <button class="filter-btn is-active" type="button" data-filter="todos">Todos</button>
+          <button class="filter-btn" type="button" data-filter="pedido">Pedidos</button>
+          <button class="filter-btn" type="button" data-filter="garcom">Garçom</button>
+          <button class="filter-btn" type="button" data-filter="conta">Conta</button>
+          <button class="filter-btn" type="button" data-filter="gelo">Gelo</button>
+          <button class="filter-btn" type="button" data-filter="limpeza">Limpeza</button>
+          <button class="filter-btn" type="button" data-filter="atendimento">Atendimento</button>
+          <button class="filter-btn" type="button" data-filter="concluido">Concluídos</button>
+          <button class="filter-btn" type="button" data-filter="cancelado">Cancelados</button>
+        </div>
+        <div class="admin-requests" id="adminRequests"></div>
+      </section>
+
+      <details class="admin-card admin-config">
+        <summary>Configurações e cardápio</summary>
+        <div class="admin-config__grid">
+          <form id="settingsForm" class="cart-form">
+            <h2>Dados rápidos</h2>
+            <label>WhatsApp do restaurante<input type="tel" id="settingsWhatsapp" placeholder="5581999999999"
+                required /></label>
+            <label>Horário de funcionamento<input type="text" id="settingsHours" placeholder="Sáb a Qua • 7h às 17h30"
+                required /></label>
+            <label>Link do Google Maps<input type="url" id="settingsMaps" placeholder="https://www.google.com/maps/..."
+                required /></label>
+            <button class="btn btn--primary" type="submit">Salvar configurações</button>
+          </form>
+
+          <form id="productForm" class="cart-form">
+            <h2>Novo item</h2>
+            <label>Nome<input type="text" id="productName" placeholder="Ex.: Caldinho" required /></label>
+            <label>Categoria<select id="productCategory" required></select></label>
+            <label>Preço em reais<input type="number" id="productPrice" step="0.01" min="0" placeholder="29.90"
+                required /></label>
+            <label>Descrição<textarea id="productDescription" rows="3" placeholder="Descrição curta"
+                required></textarea></label>
+            <label>Imagem<select id="productImage"></select></label>
+            <button class="btn btn--primary" type="submit">Adicionar produto</button>
+          </form>
+        </div>
+
+        <div class="admin-menu-editor">
+          <div class="admin-actions">
+            <button class="btn btn--dark btn--small" id="saveProducts" type="button">Salvar cardápio</button>
+            <button class="btn btn--light btn--small" id="resetProducts" type="button">Restaurar padrão</button>
+          </div>
+          <div class="admin-products" id="adminProducts"></div>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <div class="toast" id="adminToast" role="status" aria-live="polite"></div>
+</body>
+
+</html>

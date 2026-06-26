@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" role="img" aria-label="Mapa placeholder da Praia do Pina">
+  <rect width="900" height="700" fill="#e8f8fa"/>
+  <path d="M0 470 C130 410 230 510 360 455 C520 388 665 470 900 385 L900 700 L0 700Z" fill="#f8edcf"/>
+  <path d="M0 320 C160 280 260 380 430 315 C600 255 710 350 900 285" fill="none" stroke="#16a3b8" stroke-width="52" opacity=".5"/>
+  <path d="M50 105 L790 620" stroke="#ffffff" stroke-width="34" opacity=".9"/>
+  <path d="M110 590 L830 115" stroke="#ffffff" stroke-width="28" opacity=".86"/>
+  <path d="M130 110 L808 110" stroke="#ffffff" stroke-width="18" opacity=".7"/>
+  <circle cx="492" cy="352" r="78" fill="#ff6f59"/>
+  <circle cx="492" cy="352" r="32" fill="#ffffff"/>
+  <text x="450" y="500" font-size="38" font-weight="800" font-family="Arial" fill="#063b4f">Praia do Pina</text>
+</svg>
