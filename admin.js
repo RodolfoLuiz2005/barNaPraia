@@ -39,10 +39,37 @@ const DEFAULT_PRODUCTS = [
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => Array.from(document.querySelectorAll(selector));
+
+const DataService = {
+  getProducts() {
+    const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.products), null);
+    return Array.isArray(stored) && stored.length ? stored : DEFAULT_PRODUCTS;
+  },
+  saveProducts(products) {
+    localStorage.setItem(STORAGE_KEYS.products, JSON.stringify(products));
+  },
+  getSettings() {
+    return { ...DEFAULT_SETTINGS, ...safeJsonParse(localStorage.getItem(STORAGE_KEYS.settings), {}) };
+  },
+  saveSettings(settings) {
+    localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(settings));
+  },
+  getRequests() {
+    const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.serviceRequests), []);
+    return Array.isArray(stored) ? stored : [];
+  },
+  saveRequests(requests) {
+    localStorage.setItem(STORAGE_KEYS.serviceRequests, JSON.stringify(requests));
+  }
+};
+
 let products = loadProducts();
 let settings = loadSettings();
 let activeFilter = "todos";
 let lastRenderedSignature = "";
+let soundEnabled = false;
+let knownRequestIds = new Set();
+let audioContext = null;
 
 function safeJsonParse(value, fallback) {
   try { return value ? JSON.parse(value) : fallback; } catch { return fallback; }
@@ -58,29 +85,27 @@ function escapeHtml(value) {
 }
 
 function loadProducts() {
-  const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.products), null);
-  return Array.isArray(stored) && stored.length ? stored : DEFAULT_PRODUCTS;
+  return DataService.getProducts();
 }
 
 function loadSettings() {
-  return { ...DEFAULT_SETTINGS, ...safeJsonParse(localStorage.getItem(STORAGE_KEYS.settings), {}) };
+  return DataService.getSettings();
 }
 
 function saveProductsToStorage() {
-  localStorage.setItem(STORAGE_KEYS.products, JSON.stringify(products));
+  DataService.saveProducts(products);
 }
 
 function saveSettingsToStorage() {
-  localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(settings));
+  DataService.saveSettings(settings);
 }
 
 function getServiceRequests() {
-  const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.serviceRequests), []);
-  return Array.isArray(stored) ? stored : [];
+  return DataService.getRequests();
 }
 
 function saveServiceRequests(requests) {
-  localStorage.setItem(STORAGE_KEYS.serviceRequests, JSON.stringify(requests));
+  DataService.saveRequests(requests);
 }
 
 function formatRequestType(type) {
@@ -89,7 +114,7 @@ function formatRequestType(type) {
 }
 
 function formatStatus(status) {
-  const labels = { novo: "Novo", em_atendimento: "Em atendimento", concluido: "Concluído", cancelado: "Cancelado" };
+  const labels = { novo: "Novo", em_atendimento: "Em atendimento", preparando: "Preparando", concluido: "ConcluÃ­do", cancelado: "Cancelado" };
   return labels[status] || status;
 }
 
@@ -100,6 +125,18 @@ function formatCurrency(value) {
 function formatDate(value) {
   if (!value) return "Agora";
   return new Date(value).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function getWaitMinutes(value) {
+  if (!value) return 0;
+  return Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000));
+}
+
+function formatWaitTime(value) {
+  const minutes = getWaitMinutes(value);
+  if (minutes < 1) return "agora";
+  if (minutes === 1) return "1 min";
+  return minutes + " min";
 }
 
 function formatBraceletStatus(value) {
@@ -161,11 +198,11 @@ function showAdminToast(message) {
   showAdminToast.timer = setTimeout(() => toast.classList.remove("is-visible"), 2600);
 }
 
-function filterRequests(type = activeFilter) {
-  const requests = getServiceRequests();
+function filterRequests(type = activeFilter, source = getServiceRequests()) {
+  const requests = Array.isArray(source) ? source : [];
   if (type === "todos") return requests;
-  if (type === "concluido" || type === "cancelado") return requests.filter(request => request.status === type);
-  return requests.filter(request => request.type === type && request.status !== "concluido" && request.status !== "cancelado");
+  if (["novo", "em_atendimento", "preparando", "concluido", "cancelado"].includes(type)) return requests.filter(request => request.status === type);
+  return requests.filter(request => request.type === type && !["concluido", "cancelado"].includes(request.status));
 }
 
 function renderDashboardStats() {
@@ -176,43 +213,126 @@ function renderDashboardStats() {
   const count = predicate => requests.filter(predicate).length;
   const data = [
     { label: "Novos pedidos", value: count(req => req.type === "pedido" && req.status === "novo") },
-    { label: "Garçom", value: count(req => req.type === "garcom" && req.status !== "concluido" && req.status !== "cancelado") },
-    { label: "Contas", value: count(req => req.type === "conta" && req.status !== "concluido" && req.status !== "cancelado") },
-    { label: "Gelo/Limpeza", value: count(req => ["gelo", "limpeza"].includes(req.type) && req.status !== "concluido" && req.status !== "cancelado") },
+    { label: "GarÃ§om", value: count(req => req.type === "garcom" && !["concluido", "cancelado"].includes(req.status)) },
+    { label: "Contas", value: count(req => req.type === "conta" && !["concluido", "cancelado"].includes(req.status)) },
     { label: "Em atendimento", value: count(req => req.status === "em_atendimento") },
-    { label: "Concluídos hoje", value: count(req => req.status === "concluido" && String(req.updatedAt || "").slice(0, 10) === today) }
+    { label: "Cancelados", value: count(req => req.status === "cancelado") },
+    { label: "ConcluÃ­dos hoje", value: count(req => req.status === "concluido" && String(req.updatedAt || "").slice(0, 10) === today) }
   ];
 
   stats.innerHTML = data.map(item => `<article class="stat-card"><span>${escapeHtml(item.label)}</span><strong>${item.value}</strong></article>`).join("");
 }
 
+function primeKnownRequests() {
+  knownRequestIds = new Set(getServiceRequests().map(request => request.id));
+}
+
+function playNotificationSound() {
+  if (!soundEnabled) return;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return;
+  audioContext = audioContext || new AudioContextClass();
+  if (audioContext.state === "suspended") audioContext.resume();
+  const oscillator = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+  oscillator.type = "sine";
+  oscillator.frequency.setValueAtTime(740, audioContext.currentTime);
+  oscillator.frequency.setValueAtTime(980, audioContext.currentTime + 0.08);
+  gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.22, audioContext.currentTime + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.24);
+  oscillator.connect(gain);
+  gain.connect(audioContext.destination);
+  oscillator.start();
+  oscillator.stop(audioContext.currentTime + 0.25);
+}
+
+function syncNewRequestAudio(requests) {
+  const currentIds = new Set(requests.map(request => request.id));
+  const hasNewRequest = requests.some(request => !knownRequestIds.has(request.id) && request.status === "novo");
+  if (hasNewRequest && soundEnabled) playNotificationSound();
+  knownRequestIds = currentIds;
+}
+
+function updateSoundButton() {
+  const button = $("#toggleSound");
+  if (!button) return;
+  button.textContent = soundEnabled ? "Som ativo" : "Ativar som";
+  button.setAttribute("aria-pressed", String(soundEnabled));
+  button.classList.toggle("is-active", soundEnabled);
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  if (soundEnabled) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) {
+      audioContext = audioContext || new AudioContextClass();
+      if (audioContext.state === "suspended") audioContext.resume();
+    }
+    primeKnownRequests();
+    showAdminToast("Som ativado para novas solicitaÃ§Ãµes.");
+  } else {
+    showAdminToast("Som desativado.");
+  }
+  updateSoundButton();
+}
+
+function printRequest(id) {
+  const request = getServiceRequests().find(item => item.id === id);
+  if (!request) return;
+  const items = (request.items || []).map(item => '<li>' + escapeHtml(item.quantity) + 'x ' + escapeHtml(item.name) + ' - ' + formatCurrency(item.total || item.price * item.quantity) + '</li>').join('');
+  const printWindow = window.open('', '_blank', 'width=720,height=820');
+  const html = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>' + escapeHtml(request.id) + '</title><style>body{font-family:Arial,sans-serif;margin:28px;color:#17333b}h1{margin:0 0 8px}section{margin:16px 0;padding-top:12px;border-top:1px solid #ddd}li{margin:6px 0}.total{font-size:20px;font-weight:700}</style></head><body><h1>' + escapeHtml(formatRequestType(request.type)) + ' ' + escapeHtml(request.id) + '</h1><p>Mesa: ' + escapeHtml(request.table || 'Nao informada') + '<br>Responsavel: ' + escapeHtml(request.customerName || 'Nao informado') + '<br>Status: ' + escapeHtml(formatStatus(request.status)) + '<br>Espera: ' + escapeHtml(formatWaitTime(request.createdAt)) + '</p><section><h2>Itens</h2><ul>' + (items || '<li>Sem itens</li>') + '</ul></section>' + (request.note ? '<section><h2>Observacao</h2><p>' + escapeHtml(request.note) + '</p></section>' : '') + '<p class="total">Total: ' + formatCurrency(request.total || 0) + '</p></body></html>';
+  if (!printWindow) {
+    window.print();
+    return;
+  }
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+}
+
 function renderAdminRequests(force = false) {
   const wrapper = $("#adminRequests");
   if (!wrapper) return;
-  const requests = filterRequests(activeFilter);
+  const allRequests = getServiceRequests();
+  syncNewRequestAudio(allRequests);
+  const requests = filterRequests(activeFilter, allRequests);
   const signature = JSON.stringify({ activeFilter, requests });
   if (!force && signature === lastRenderedSignature) return;
   lastRenderedSignature = signature;
 
   renderDashboardStats();
   const lastUpdate = $("#lastUpdateText");
-  if (lastUpdate) lastUpdate.textContent = `Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+  if (lastUpdate) lastUpdate.textContent = `Atualizado Ã s ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
 
   if (!requests.length) {
-    wrapper.innerHTML = `<div class="empty-state"><strong>Nenhuma solicitação aqui.</strong><span>Abra o site com ?mesa=08 e envie um pedido ou chamado.</span></div>`;
+    wrapper.innerHTML = `<div class="empty-state"><strong>Nenhuma solicitaÃ§Ã£o aqui.</strong><span>Abra o site com ?mesa=08 e envie um pedido ou chamado.</span></div>`;
     return;
   }
 
   wrapper.innerHTML = requests.map(request => {
     const items = (request.items || []).map(item => `<li>${escapeHtml(item.quantity)}x ${escapeHtml(item.name)} <span>${formatCurrency(item.total || item.price * item.quantity)}</span></li>`).join("");
     const canStart = request.status === "novo";
+    const canPrepare = request.type === "pedido" && ["novo", "em_atendimento"].includes(request.status);
     const canFinish = request.status !== "concluido" && request.status !== "cancelado";
+    const waitMinutes = getWaitMinutes(request.createdAt);
+    const classes = [
+      "request-card",
+      "request-card--" + request.type,
+      "status-" + request.status,
+      waitMinutes >= 15 && canFinish ? "is-waiting-long" : "",
+      request.type === "conta" && canFinish ? "is-account-alert" : "",
+      request.hasMinors ? "has-minor-alert" : ""
+    ].filter(Boolean).join(" ");
     return `
-      <article class="request-card request-card--${escapeHtml(request.type)} status-${escapeHtml(request.status)}" data-request-id="${escapeHtml(request.id)}">
+      <article class="${escapeHtml(classes)}" data-request-id="${escapeHtml(request.id)}">
         <div class="request-card__top">
           <div>
             <strong>${escapeHtml(request.id)}</strong>
-            <span>${formatRequestType(request.type)} • ${formatDate(request.createdAt)}</span>
+            <span>${formatRequestType(request.type)} â€¢ ${formatDate(request.createdAt)} â€¢ espera ${formatWaitTime(request.createdAt)}</span>
           </div>
           <mark>${formatStatus(request.status)}</mark>
         </div>
@@ -220,11 +340,13 @@ function renderAdminRequests(force = false) {
         ${items ? `<ul class="request-items">${items}</ul>` : ""}
         ${request.note ? `<p class="request-note">${escapeHtml(request.note)}</p>` : ""}
         ${request.total ? `<div class="request-total"><span>Total</span><strong>${formatCurrency(request.total)}</strong></div>` : ""}
-        <div class="request-history">${(request.history || []).slice(-3).map(item => `<span>${formatStatus(item.status)} às ${formatDate(item.at)}</span>`).join("")}</div>
+        <div class="request-history">${(request.history || []).slice(-4).map(item => `<span>${formatStatus(item.status)} Ã s ${formatDate(item.at)}</span>`).join("")}</div>
         <div class="request-actions">
           <button class="btn btn--light btn--small" type="button" data-status="em_atendimento" ${canStart ? "" : "disabled"}>Iniciar atendimento</button>
+          ${request.type === "pedido" ? `<button class="btn btn--light btn--small" type="button" data-status="preparando" ${canPrepare ? "" : "disabled"}>Marcar preparando</button>` : ""}
           <button class="btn btn--primary btn--small" type="button" data-status="concluido" ${canFinish ? "" : "disabled"}>Concluir</button>
           <button class="btn btn--danger btn--small" type="button" data-status="cancelado" ${canFinish ? "" : "disabled"}>Cancelar</button>
+          ${request.type === "pedido" ? `<button class="btn btn--light btn--small" type="button" data-print-request="${escapeHtml(request.id)}">Imprimir pedido</button>` : ""}
           ${request.customerPhone ? `<a class="btn btn--dark btn--small" href="${buildWhatsAppUrl(request.customerPhone, buildRequestMessage(request))}" target="_blank" rel="noopener">Enviar WhatsApp</a>` : ""}
         </div>
       </article>
@@ -307,6 +429,8 @@ function showDashboard() {
   $("#dashboardPanel")?.classList.remove("admin-hidden");
   renderSettings();
   renderProducts();
+  primeKnownRequests();
+  updateSoundButton();
   renderAdminRequests(true);
 }
 
@@ -331,6 +455,11 @@ function bindEvents() {
   });
 
   $("#adminRequests")?.addEventListener("click", event => {
+    const printButton = event.target.closest("[data-print-request]");
+    if (printButton) {
+      printRequest(printButton.dataset.printRequest);
+      return;
+    }
     const button = event.target.closest("[data-status]");
     if (!button) return;
     const card = button.closest("[data-request-id]");
@@ -338,6 +467,7 @@ function bindEvents() {
   });
 
   $("#refreshRequests")?.addEventListener("click", () => { lastRenderedSignature = ""; renderAdminRequests(true); showAdminToast("Painel atualizado."); });
+  $("#toggleSound")?.addEventListener("click", toggleSound);
 
   $("#clearCompleted")?.addEventListener("click", () => {
     const remaining = getServiceRequests().filter(request => request.status !== "concluido" && request.status !== "cancelado");

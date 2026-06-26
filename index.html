@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description"
     content="Atendimento digital para restaurante/bar de praia no Pina, Recife, com cardápio, carrinho, QR Code por mesa e painel admin." />
-  <meta name="theme-color" content="#057c92" />
+  <meta name="theme-color" content="#232532" />
   <title>Maré Pina Beach Bar | Atendimento na praia</title>
   <link rel="preload" href="assets/images/hero-praia.svg" as="image" />
   <link rel="icon" href="assets/icons/sun-wave.svg" type="image/svg+xml" />
@@ -103,8 +103,22 @@
           <button class="btn btn--primary" data-open-cart type="button">Ver pedido <span
               id="floatingCartCountInline">0</span></button>
         </div>
+        <label class="menu-search">Buscar no cardápio
+          <input type="search" id="menuSearch" placeholder="Ex.: peixe, drink, cerveja" autocomplete="off" />
+        </label>
         <div class="category-scroller" id="categoryScroller" aria-label="Categorias do cardápio"></div>
         <div class="menu-grid" id="menuGrid"></div>
+      </div>
+    </section>
+
+    <section class="section customer-status" id="meu-atendimento" aria-labelledby="status-title">
+      <div class="container">
+        <div class="section-heading section-heading--compact">
+          <span class="eyebrow">Meu atendimento</span>
+          <h2 id="status-title">Status do pedido</h2>
+          <p>Acompanhe pedidos e chamados enviados desta mesa.</p>
+        </div>
+        <div class="status-list" id="customerStatusList"></div>
       </div>
     </section>
 
@@ -170,6 +184,13 @@
   <button class="floating-waiter" id="floatingWaiter" type="button">Chamar garçom</button>
   <a class="floating-whatsapp" id="floatingWhatsapp" href="#" target="_blank" rel="noopener"
     aria-label="Chamar no WhatsApp">WhatsApp</a>
+
+  <nav class="mobile-bottom-nav" aria-label="Ações rápidas no celular">
+    <a href="#cardapio">Cardápio</a>
+    <a href="#atendimento">Atendimento</a>
+    <button data-open-cart type="button">Pedido <span id="bottomCartCount">0</span></button>
+    <button data-quick-request="conta" type="button">Conta</button>
+  </nav>
 
   <div class="customer-start" id="customerStartModal" role="dialog" aria-modal="true"
     aria-labelledby="customerStartTitle" hidden>

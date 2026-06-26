@@ -46,6 +46,7 @@ const QUICK_ACTIONS = [
 let settings = loadSettings();
 let products = loadProducts();
 let activeCategory = "Todos";
+let menuSearchTerm = "";
 let detectedTable = "";
 let customerSession = null;
 let lastCreatedOrder = null;
@@ -56,6 +57,39 @@ const cart = new Map();
 const moneyFormatter = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const $ = (selector, context = document) => context.querySelector(selector);
 const $$ = (selector, context = document) => Array.from(context.querySelectorAll(selector));
+
+const DataService = {
+  getProducts() {
+    const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.products), null);
+    return Array.isArray(stored) && stored.length ? stored : DEFAULT_PRODUCTS;
+  },
+  getSettings() {
+    return { ...DEFAULT_SETTINGS, ...safeJsonParse(localStorage.getItem(STORAGE_KEYS.settings), {}) };
+  },
+  getRequests() {
+    const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.serviceRequests), []);
+    return Array.isArray(stored) ? stored : [];
+  },
+  saveRequests(requests) {
+    localStorage.setItem(STORAGE_KEYS.serviceRequests, JSON.stringify(requests.slice(0, 200)));
+  },
+  saveRequest(request) {
+    const requests = this.getRequests();
+    requests.unshift(request);
+    this.saveRequests(requests);
+    window.dispatchEvent(new CustomEvent("service-request-created", { detail: request }));
+  },
+  getCustomerSession() {
+    const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.customerSession), null);
+    return stored && stored.id ? stored : null;
+  },
+  saveCustomerSession(session) {
+    localStorage.setItem(STORAGE_KEYS.customerSession, JSON.stringify(session));
+  },
+  clearCustomerSession() {
+    localStorage.removeItem(STORAGE_KEYS.customerSession);
+  }
+};
 
 function safeJsonParse(value, fallback) {
   try { return value ? JSON.parse(value) : fallback; } catch { return fallback; }
@@ -122,8 +156,7 @@ function showToast(message) {
 }
 
 function getCustomerSession() {
-  const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.customerSession), null);
-  return stored && stored.id ? stored : null;
+  return DataService.getCustomerSession();
 }
 
 function nextCustomerSessionId() {
@@ -300,8 +333,7 @@ function attachCustomerDataToRequest(request) {
 }
 
 function getServiceRequests() {
-  const stored = safeJsonParse(localStorage.getItem(STORAGE_KEYS.serviceRequests), []);
-  return Array.isArray(stored) ? stored : [];
+  return DataService.getRequests();
 }
 
 function nextServiceRequestId() {
@@ -333,9 +365,7 @@ function saveServiceRequest(request) {
     updatedAt: now
   };
 
-  requests.unshift(record);
-  localStorage.setItem(STORAGE_KEYS.serviceRequests, JSON.stringify(requests.slice(0, 200)));
-  window.dispatchEvent(new CustomEvent("service-request-created", { detail: record }));
+  DataService.saveRequest(record);
   return record;
 }
 
@@ -383,6 +413,7 @@ function createOrderRequest() {
   if (whatsappButton) whatsappButton.disabled = false;
   clearCart();
   closeCart();
+  renderCustomerStatus();
   showToast(`Pedido ${request.id} enviado para o painel.`);
   return request;
 }
@@ -413,7 +444,54 @@ function createQuickRequest(type) {
     atendimento: "Mensagem enviada para atendimento."
   };
   showToast(messages[type] || "Solicitação enviada para atendimento.");
+  renderCustomerStatus();
   return request;
+}
+
+function formatRequestType(type) {
+  const labels = { pedido: "Pedido", garcom: "GarÃ§om", conta: "Conta", gelo: "Gelo", limpeza: "Limpeza", atendimento: "Atendimento" };
+  return labels[type] || "SolicitaÃ§Ã£o";
+}
+
+function formatStatus(status) {
+  const labels = { novo: "Novo", em_atendimento: "Em atendimento", preparando: "Preparando", concluido: "ConcluÃ­do", cancelado: "Cancelado" };
+  return labels[status] || status || "Novo";
+}
+
+function formatShortDate(value) {
+  if (!value) return "Agora";
+  return new Date(value).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function getSessionRequests() {
+  const session = customerSession || getCustomerSession();
+  if (!session) return [];
+  return getServiceRequests()
+    .filter(request => request.sessionId === session.id || (request.table === session.table && request.customerPhone === session.customerPhone))
+    .slice(0, 12);
+}
+
+function renderCustomerStatus() {
+  const wrapper = $("#customerStatusList");
+  if (!wrapper) return;
+  const requests = getSessionRequests();
+  if (!requests.length) {
+    wrapper.innerHTML = '<div class="empty-state"><strong>Nenhuma solicitaÃ§Ã£o enviada ainda.</strong><span>Seus pedidos e chamados aparecerÃ£o aqui.</span></div>';
+    return;
+  }
+  wrapper.innerHTML = requests.map(request => {
+    const totalItems = (request.items || []).reduce((total, item) => total + Number(item.quantity || 0), 0);
+    const detail = request.type === "pedido" ? (totalItems ? totalItems + " item(ns)" : "Pedido") : (request.note || formatRequestType(request.type));
+    return `
+      <article class="status-card status-${escapeHtml(request.status)}">
+        <div>
+          <strong>${formatRequestType(request.type)}</strong>
+          <span>${escapeHtml(detail)} â€¢ ${formatShortDate(request.createdAt)}</span>
+        </div>
+        <mark>${formatStatus(request.status)}</mark>
+      </article>
+    `;
+  }).join("");
 }
 
 function buildOrderMessage(request) {
@@ -445,7 +523,18 @@ function renderCategories() {
 function renderMenu() {
   const grid = $("#menuGrid");
   if (!grid) return;
-  const filtered = activeCategory === "Todos" ? products : products.filter(product => product.category === activeCategory);
+  const search = menuSearchTerm.trim().toLowerCase();
+  const filtered = products.filter(product => {
+    const matchesCategory = activeCategory === "Todos" || product.category === activeCategory;
+    const searchable = [product.name, product.category, product.description].join(" ").toLowerCase();
+    return matchesCategory && (!search || searchable.includes(search));
+  });
+
+  if (!filtered.length) {
+    grid.innerHTML = '<div class="empty-state menu-empty"><strong>Nenhum item encontrado.</strong><span>Tente buscar por outro prato, bebida ou categoria.</span></div>';
+    return;
+  }
+
   grid.innerHTML = filtered.map(product => `
     <article class="menu-card" data-product-card="${escapeHtml(product.id)}">
       <img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy" />
@@ -461,7 +550,6 @@ function renderMenu() {
     </article>
   `).join("");
 }
-
 function setCategory(category) {
   activeCategory = category;
   renderCategories();
@@ -489,7 +577,7 @@ function changeQuantity(productId, delta) {
 function renderCart() {
   const items = getCartItems();
   const count = items.reduce((total, item) => total + item.quantity, 0);
-  ["#cartCountBadge", "#floatingCartCount", "#floatingCartCountInline"].forEach(selector => {
+  ["#cartCountBadge", "#floatingCartCount", "#floatingCartCountInline", "#bottomCartCount"].forEach(selector => {
     const element = $(selector);
     if (element) element.textContent = String(count);
   });
@@ -720,13 +808,23 @@ function bindGlobalEvents() {
   });
   $("#editCustomerSession")?.addEventListener("click", openCustomerStartModal);
   $("#clearCustomerSession")?.addEventListener("click", () => {
-    localStorage.removeItem(STORAGE_KEYS.customerSession);
+    DataService.clearCustomerSession();
     customerSession = null;
     lastCreatedOrder = null;
     const whatsappButton = $("#sendWhatsAppSecondary");
     if (whatsappButton) whatsappButton.disabled = true;
     syncTableInputs(getTableFromURL());
+    renderCustomerStatus();
     openCustomerStartModal();
+  });
+
+  $("#menuSearch")?.addEventListener("input", event => {
+    menuSearchTerm = event.target.value || "";
+    renderMenu();
+  });
+
+  window.addEventListener("storage", event => {
+    if (!event.key || event.key === STORAGE_KEYS.serviceRequests || event.key === STORAGE_KEYS.customerSession) renderCustomerStatus();
   });
 }
 
@@ -738,9 +836,11 @@ function init() {
   renderCategories();
   renderMenu();
   renderCart();
+  renderCustomerStatus();
   initGalleryModal();
   bindGlobalEvents();
   initCustomerSessionGate();
+  setInterval(renderCustomerStatus, 1000);
 }
 
 initLoader();
